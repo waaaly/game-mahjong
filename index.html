@@ -1,0 +1,531 @@
+<!--
+ * @Description: 
+ * @Author: waaaly
+ * @Github: https://github.com/waaaly
+ * @Date: 2021-09-02 10:07:17
+ * @LastEditTime: 2021-09-15 17:55:48
+-->
+
+<!DOCTYPE html>
+<html>
+    <head>
+        <script  src="socket.io.js"></script>
+    </head>
+    <body>
+        <input type="number" onchange ="createRoomSize = this.value"/>
+        <input type = "text"  onchange = "createRoomName = this.value" />
+        <button onclick="createRoom()">开房</button>
+        <input disabled id="entring-room-name" />
+        <button onclick="enteryRoom()">加入房间</button>
+        <input disabled id="putting-out-card" />
+        <button onclick="putOutCard()">出牌</button>
+        <button onclick="putInCard()">摸牌</button>
+        <button onclick="restart()">重新开始</button>
+        <div style="display: flex;">
+            <fieldset>
+                <legend>在线人数</legend>
+                <ul id='users'></ul>
+            </fieldset>
+            <fieldset>
+                <legend>房间列表</legend>
+                <ul id='rooms'></ul>
+            </fieldset>
+            <fieldset>
+                <legend>当前房间人数</legend>
+                <ul id='curroom'></ul>
+            </fieldset>
+        </div>
+        <fieldset>
+            <legend>出牌区</legend>
+            <div id='5p' style="display:flex;flex-wrap: wrap"></div>
+        </fieldset>
+        <fieldset>
+            <legend id='1p-number'>1p</legend>
+            <div id='1p' style="display:flex;justify-content: space-around;">
+                <div id='1p-hand'></div>
+                <div id='1p-open'></div>
+            </div>
+        </fieldset>
+        <fieldset>
+            <legend id='2p-number'>2p</legend>
+            <div id='2p' style="display:flex;justify-content: space-around;">
+                <div id='2p-hand'></div>
+                <div id='2p-open'></div>
+            </div>
+        </fieldset>
+        <fieldset>
+            <legend id='3p-number'>3p</legend>
+            <div id='3p' style="display:flex;justify-content: space-around;">
+                <div id='3p-hand'></div>
+                <div id='3p-open'></div>
+            </div>
+        </fieldset>
+        <fieldset>
+            <legend id='4p-number'>4p</legend>
+            <div id='4p' style="display:flex;justify-content: space-around;">
+                <div id='4p-hand'></div>
+                <div id='4p-open'></div>
+            </div>
+        </fieldset>
+        
+        <fieldset>
+            <legend>操作区</legend>
+            <div id='cardGroup' style="display:flex;justify-content: space-around">
+                <fieldset>
+                    <legend>吃</legend>
+                    <div id='chi' style="display:flex"></div>
+                </fieldset>
+                <fieldset>
+                    <legend>碰</legend>
+                    <div id='trip' style="display:flex"></div>
+                </fieldset>
+                <fieldset>
+                    <legend>杠</legend>
+                    <div id='quad' style="display:flex"></div>
+                </fieldset>
+                <button onclick="onCancelAction()">取消</button>
+            </div>
+        </fieldset>
+        <script>
+            var socket = io('http://192.168.91.3:912');
+            var socketId = null;
+            var curPlayer = null;
+            var curRoom = null;
+            var createRoomName = null;
+            var createRoomSize = null;
+            var enteryRoomEl = document.getElementById('entring-room-name')
+            var putOutCardEl = document.getElementById('putting-out-card')
+            var curRoomEl = document.getElementById('curroom')
+            var seqGroup = []
+            var tripGroup = []
+            var quadGroup = []
+            socket.emit('login','user');
+            socket.on('login',data=>{
+                socketId = data.socketId
+                console.log(data)
+                renderUsers(data.userList.data)
+                renderRooms(data.roomList.data)
+                renderCurRoom()
+            });
+            socket.on('bro-login',data=>{
+                // console.log(data)
+                renderUsers(data.userList.data)
+            });
+            socket.on('bro-logout',data=>{
+                // console.log(data)
+                renderUsers(data.userList.data)
+            });
+            socket.on("create-room",data=>{
+                console.log(data)
+                curRoom = data.room
+                curPlayer = data.csocket.curPlayer
+                renderRooms(data.roomList.data)
+                renderCurRoom()
+            })
+            socket.on("bro-create-room",data=>{
+                console.log(data)
+                renderRooms(data.roomList.data)
+            })
+            socket.on("entery-room",data=>{
+                console.log(data)
+                curRoom = data.room
+                curPlayer = data.csocket.curPlayer
+                if(data.room['1p'].jokers.length !== 0){
+                    renderCards(data.room)
+                }
+                renderCurRoom()
+            })
+            socket.on("put-out-card",data=>{
+                console.log(data)
+                curRoom = data.room
+                renderCards(data.room)
+            })
+            socket.on("put-in-card",data=>{
+                console.log(data)
+                curRoom = data.room
+                renderCards(data.room)
+            })
+            socket.on("action-card",data=>{
+                console.log(data)
+                curRoom = data.room
+                renderCards(data.room)
+                renderCardGroup()
+            })
+            socket.on("regame",data=>{
+                console.log(data)
+                curRoom = data.room
+                renderCards(data.room)
+                renderCardGroup()
+            })
+            socket.on("room-msg",data=>{
+                console.log(data)
+                curRoom = data.room
+                renderCards(data.room)
+                renderCurRoom()
+                renderCardGroup()
+            })
+
+
+
+            // 创建房间
+            function createRoom(){
+                if(createRoomSize < 1 || createRoomSize > 4){
+                    alert("房间人数有误，2-4人")
+                    return
+                }
+                if(!createRoomName){
+                    alert("请输入房间名！")
+                    return
+                }
+                console.log(createRoomName)
+                socket.emit('create-room',{
+                    roomName:createRoomName,
+                    socketId,
+                    size:createRoomSize
+                })
+            }
+            // 加入房间
+            function enteryRoom(){
+                if(!enteryRoomEl.value){
+                    alert("请选择一个房间！")
+                    return
+                }
+                socket.emit('entery-room',{
+                    roomName:enteryRoomEl.value,
+                    socketId
+                })
+            }
+            // 摸牌
+            function putInCard(){
+                if(!curRoom){
+                    return
+                }
+                if(curRoom.curPlayer !== curPlayer){
+                    alert("还没到你没到你")
+                    return
+                }
+                socket.emit('put-in-card',{
+                    roomName:curRoom.name,
+                    socketId,
+                    player:curPlayer,
+                })
+            }
+            // 出牌
+            function putOutCard(){
+                if(!curRoom){
+                    return
+                }
+                if(curRoom.curPlayer !== curPlayer){
+                    alert("还没到你没到你")
+                    return
+                }
+                // if(curRoom[curPlayer].jokers.length + curRoom[curPlayer].fJoker.length < 14){
+                //     alert("注意小相公")
+                //     return
+                // }
+                if(!putOutCardEl.value){
+                    alert("请选择一张卡")
+                    return
+                }
+                socket.emit('put-out-card',{
+                    roomName:curRoom.name,
+                    socketId,
+                    player:curPlayer,
+                    card:JSON.parse(putOutCardEl.value)
+                })
+                putOutCardEl.value = null
+            }
+            // 重新开始
+            function restart(){
+                socket.emit('regame',{
+                    roomName:curRoom.name
+                })
+            }
+            // 取消
+            function onCancelAction(e){
+                if(!curRoom || !curPlayer){
+                    return
+                }
+                socket.emit('action-card',{
+                    type:'cancel',
+                    roomName:curRoom.name,
+                    player:curPlayer,
+                    cardGroup:null
+                })
+            }
+            // 吃
+            function onSeqCard(e){
+                if(!curRoom || !curPlayer){
+                    return
+                }
+                
+                seqGroup = getChildCard(e.target.id)
+                let params = {
+                    type:'seq',
+                    roomName:curRoom.name,
+                    player:curPlayer,
+                    cardGroup:seqGroup
+                }
+                socket.emit('action-card',params)
+                console.log(params)
+                seqGroup = []
+            }
+            // 碰
+            function onTripCard(e){
+                if(!curRoom || !curPlayer){
+                    return
+                }
+                tripGroup = getChildCard('trip')
+                let params = {
+                    type:'trip',
+                    roomName:curRoom.name,
+                    player:curPlayer,
+                    cardGroup:tripGroup
+                }
+                socket.emit('action-card',params)
+                console.log(params)
+                tripGroup = []
+            }
+            // 杠
+            function onQuadCard(e){
+                if(!curRoom || !curPlayer){
+                    return
+                }
+                quadGroup = getChildCard('quad')
+                let params = {
+                    type:'quad',
+                    roomName:curRoom.name,
+                    player:curPlayer,
+                    cardGroup:quadGroup
+                }
+                socket.emit('action-card',params)
+                console.log(params)
+                quadGroup = []
+            }
+            // 胡
+            function onWinCard(e){
+
+            }
+            function getChildCard(id){
+                let el = document.getElementById(id),
+                butIdArr = []
+                el.childNodes.forEach(item=>{
+                    console.log(item)
+                    butIdArr.push(JSON.parse(item.id))
+                })
+                return butIdArr
+            }
+            
+            // 输入房间名
+            function onRoomName(e){
+                console.log(e)
+                createRoomName = e.target.value
+            }
+            // 单击房间
+            function onClickRoom(e){
+                console.log(e) 
+                enteryRoomEl.value  = e.target.innerHTML.slice(0,-3)
+            }
+            // 单击卡牌
+            function onClickCard(e){
+                console.log(e)
+                putOutCardEl.value  = e.target.id
+            }
+            // 渲染用户列表
+            function renderUsers(userList){
+                let users = document.getElementById('users')
+                while(users.childNodes.length){
+                    users.removeChild(users.childNodes[0])
+                }
+                userList.forEach(el => {
+                    let child = document.createElement('li')
+                    child.innerText = el
+                    if(el === socketId){
+                        child.innerText += '（我）'
+                    }
+                    users.appendChild(child)
+                });
+            }
+            // 渲染房间列表
+            function renderRooms(roomList){
+                let rooms = document.getElementById('rooms')
+                while(rooms.childNodes.length){
+                    rooms.removeChild(rooms.childNodes[0])
+                }
+                roomList.forEach(el => {
+                    let child = document.createElement('li')
+                    child.innerText = el.name + '(' + el.playerNum + ')'
+                    child.onclick = onClickRoom
+                    rooms.appendChild(child)
+                });
+            }
+            // 渲染卡牌
+            function renderCards(room){
+                function handCard(el,arr){
+                    while(el.childNodes.length){
+                        el.removeChild(el.childNodes[0])
+                    }
+                    arr.forEach((item,index)=>{
+                        let child = document.createElement('img')
+                        child.id = JSON.stringify(item)
+                        child.src = './mjsc/' + item.img + '.png'
+                        child.style.height = '64px'
+                        child.onclick = onClickCard
+                        if(index + 1 === arr.length){
+                            child.innerText += `(${arr.length})`
+                        }
+                        el.appendChild(child)
+                    })
+                } 
+                function openCard(el,arr){
+                    while(el.childNodes.length){
+                        el.removeChild(el.childNodes[0])
+                    }
+                    let totalArr = []
+                    for(let i = 0; i < arr.length; i++){
+                        totalArr.push(arr[i][0])
+                        totalArr.push(arr[i][1])
+                        totalArr.push(arr[i][2])
+                    }
+                    totalArr.forEach((item,index)=>{
+                        let child = document.createElement('img')
+                        child.id = JSON.stringify(item)
+                        child.src = './mjsc/' + item.img + '.png'
+                        child.style.height = '64px'
+                        if(index + 1 === arr.length){
+                            child.innerText += `(${arr.length})`
+                        }
+                        el.appendChild(child)
+                    })
+                } 
+                
+                curRoom.playerArr.forEach(item=>{
+                    let cardArea = document.getElementById(item),
+                        cardNumber = document.getElementById(item + '-number');
+                        cardNumber.innerText = item + (curRoom[item].jokers.length +
+                        curRoom[item].seqTimes * 3 + curRoom[item].tripTimes * 3 + 
+                        curRoom[item].quadTimes * 4) +  ''
+                    if(item === curPlayer){
+                        handCard(document.getElementById(item +'-hand'),room[item].jokers)
+                        openCard(document.getElementById(item +'-open'),room[item].fJoker)
+                        
+                    }else{
+                        openCard(document.getElementById(item +'-open'),room[item].fJoker)
+                    }
+                    if(item === curRoom.curPlayer){
+                        cardArea.style.backgroundColor = 'red'
+                    }else{
+                        console.log('bc ',item)
+                        cardArea.style.backgroundColor = ''
+                    }
+                })
+                handCard(document.getElementById('5p'),room['5p'].jokers)       
+            }
+            
+            //渲染当前房间
+            function renderCurRoom(){
+                if(!curRoom){
+                    return 
+                }
+                while(curRoomEl.childNodes.length){
+                    curRoomEl.removeChild(curRoomEl.childNodes[0])
+                }
+                let child 
+                if(curRoom['1p'].id){
+                    child = document.createElement('li')
+                    child.innerText = curRoom['1p'].id + "(1p)"
+                    if(curRoom.curPlayer === '1p'){
+                        child.style.color = 'red'
+                    }
+                    curRoomEl.appendChild(child)
+                }
+                if(curRoom['2p'].id){
+                    child = document.createElement('li')
+                    child.innerText = curRoom['2p'].id + "(2p)"
+                    if(curRoom.curPlayer === '2p'){
+                        child.style.color = 'red'
+                    }
+                    curRoomEl.appendChild(child)
+                }
+                if(curRoom['3p'].id){
+                    child = document.createElement('li')
+                    child.innerText = curRoom['3p'].id + "(3p)"
+                    if(curRoom.curPlayer === '3p'){
+                        child.style.color = 'red'
+                    }
+                    curRoomEl.appendChild(child)
+                }
+                if(curRoom['4p'].id){
+                    child = document.createElement('li')
+                    child.innerText = curRoom['4p'].id + "(4p)"
+                    if(curRoom.curPlayer === '4p'){
+                        child.style.color = 'red'
+                    }
+                    curRoomEl.appendChild(child)
+                }
+            }
+            // 渲染操作
+            function renderCardGroup(){
+                if(!curRoom || !curPlayer){
+                    return
+                }
+                let chiEl = document.getElementById('chi'),
+                pengEl = document.getElementById('trip'),
+                gangEl = document.getElementById('quad'),
+                seqJoker = curRoom[curPlayer].seqJoker,
+                tripJoker = curRoom[curPlayer].tripJoker,
+                quadJoker = curRoom[curPlayer].quadJoker;
+                
+                while(chiEl.childNodes.length){
+                    chiEl.removeChild(chiEl.childNodes[0])
+                }
+                
+                while(pengEl.childNodes.length){
+                    pengEl.removeChild(pengEl.childNodes[0])
+                }
+                
+                while(gangEl.childNodes.length){
+                    gangEl.removeChild(gangEl.childNodes[0])
+                }
+                // 吃
+                if(seqJoker.length !== 0){
+                    seqJoker.forEach((group,index)=>{
+                        let liChild = document.createElement('li')
+                        liChild.id = 'chi-li' + index;
+                        group.forEach(item=>{
+                            let child = document.createElement('img')
+                            child.id = JSON.stringify(item)
+                            child.src = './mjsc/' + item.img + '.png'
+                            child.style.height = '64px'
+                            liChild.appendChild(child)
+                        })
+                        liChild.onclick = onSeqCard
+                        chiEl.appendChild(liChild)
+                    })
+                }
+                // 碰
+                if(tripJoker.length !== 0){
+                    tripJoker.forEach(item=>{
+                        let child = document.createElement('img')
+                        child.id = JSON.stringify(item)
+                        child.src = './mjsc/' + item.img + '.png'
+                        child.style.height = '64px'
+                        pengEl.appendChild(child)
+                    })
+                    pengEl.onclick = onTripCard
+                }
+                // 杠
+                if(quadJoker.length !== 0){
+                    quadJoker.forEach(item=>{
+                        let child = document.createElement('img')
+                        child.id = JSON.stringify(item)
+                        child.src = './mjsc/' + item.img + '.png'
+                        child.style.height = '64px'
+                        gangEl.appendChild(child)
+                    })
+                    gangEl.onclick = onQuadCard
+                }
+            }
+        </script>
+    </body>
+</html>
